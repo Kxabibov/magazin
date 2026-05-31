@@ -32,6 +32,14 @@ async function startServer() {
       bot = new TelegramBot(BOT_TOKEN, { polling: true });
       console.log('Telegram Bot successfully initialized with polling.');
       
+      bot.on('polling_error', (error) => {
+        console.error('Telegram Bot Polling Error:', error.message || error);
+      });
+
+      bot.on('error', (error) => {
+        console.error('Telegram Bot General Error:', error.message || error);
+      });
+      
       // Command /start
       bot.onText(/\/start/, async (msg) => {
         const chatId = msg.chat.id;
@@ -271,7 +279,7 @@ async function startServer() {
   }
 
   // Start Server
-  app.listen(PORT, () => {
+  app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`✅ dukon Laziz Server running on http://localhost:${PORT}`);
   });
 }
