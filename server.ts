@@ -4,7 +4,6 @@ import path from 'path';
 import dotenv from 'dotenv';
 import TelegramBot from 'node-telegram-bot-api';
 import { fileURLToPath } from 'url';
-import { createServer as createViteServer } from 'vite';
 
 // Load environment variables
 dotenv.config();
@@ -264,6 +263,7 @@ async function startServer() {
   // Vite or static files serving based on NODE_ENV
   if (process.env.NODE_ENV !== 'production') {
     console.log('Integrating Vite dev middleware...');
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
