@@ -80,6 +80,21 @@ export default function App() {
   // Data states
   const [purchaseHistory, setPurchaseHistory] = useState<PurchaseRecord[]>([]);
   const [debtsList, setDebtsList] = useState<PurchaseRecord[]>([]);
+  const [historyFilter, setHistoryFilter] = useState<'all' | 'month' | 'year'>('all');
+
+  const formatCurrency = (amount: number | string) => {
+    const num = Math.round(Number(amount) || 0);
+    return num.toString().replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + ' UZS';
+  };
+
+  const cleanDate = (dateVal: any): string => {
+    if (!dateVal) return '';
+    const dateStr = String(dateVal);
+    if (dateStr.includes('T')) {
+      return dateStr.replace('T', ' ').replace(/\.\d+Z$/, '').substring(0, 16);
+    }
+    return dateStr;
+  };
 
   // Language state
   const [lang, setLang] = useState<'uz' | 'en'>('uz');
@@ -234,7 +249,7 @@ export default function App() {
   // Auto-calculate values for purchasing
   const weightVal = parseFloat(buyWeight) || 0;
   const priceVal = parseFloat(buyPrice) || 0;
-  const finalPrice = Math.round(weightVal * priceVal * 100) / 100;
+  const finalPrice = Math.round(weightVal * priceVal);
   
   // Set paid amount automatically based on selector
   useEffect(() => {
@@ -405,7 +420,7 @@ export default function App() {
   // Translations
   const t = {
     uz: {
-      title: 'dukon Laziz',
+      title: 'dukon Daftari',
       subtitle: 'Mahsulotlar hisob-kitobi',
       phoneVerify: 'Telefon raqamni tasdiqlash',
       phoneLabel: 'Telefon raqamingiz (+998...)',
@@ -419,9 +434,9 @@ export default function App() {
       history: 'Xarid tarixi',
       debt: 'Qarzni to\'lash',
       weightKg: 'Og\'irligi (kg)',
-      pricePerKg: 'Kilogramm narxi ($)',
+      pricePerKg: 'Kilogramm narxi (UZS)',
       totalPrice: 'Umumiy summasi',
-      paidAmount: 'To\'langan summa ($)',
+      paidAmount: 'To\'langan summa (UZS)',
       isDebt: 'Qarzga qolmoqdami?',
       debtAmount: 'Qarz summasi',
       savePurchase: 'Xaridni saqlash',
@@ -456,7 +471,7 @@ export default function App() {
       simulateBtn: 'Sinov rejimi (Simulyator)'
     },
     en: {
-      title: 'dukon Laziz',
+      title: 'dukon Daftari',
       subtitle: 'Product Tracking Ledger',
       phoneVerify: 'Phone Authentication',
       phoneLabel: 'Your Phone Number (+998...)',
@@ -470,9 +485,9 @@ export default function App() {
       history: 'History',
       debt: 'Pay Debt',
       weightKg: 'Quantity (kg)',
-      pricePerKg: 'Price per kg ($)',
+      pricePerKg: 'Price per kg (UZS)',
       totalPrice: 'Grand Total',
-      paidAmount: 'Amount Paid ($)',
+      paidAmount: 'Amount Paid (UZS)',
       isDebt: 'Is it on debt?',
       debtAmount: 'Debt Outstanding',
       savePurchase: 'Record Purchase',
@@ -525,9 +540,9 @@ export default function App() {
         <div className="flex justify-between items-center mt-4">
           <div className="flex items-center space-x-2">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-cyan-500 to-purple-600 flex items-center justify-center font-bold text-white shadow-lg shadow-cyan-500/20">
-              L
+              D
             </div>
-            <span className="font-serif text-lg tracking-wider font-light uppercase">dukon Laziz</span>
+            <span className="font-serif text-lg tracking-wider font-light uppercase">dukon Daftari</span>
           </div>
           <button 
             onClick={() => setLang(lang === 'uz' ? 'en' : 'uz')}
@@ -594,11 +609,37 @@ export default function App() {
 
         {/* Footer */}
         <div className="text-center text-[9px] uppercase tracking-widest text-gray-600 font-semibold">
-          © {new Date().getFullYear()} dukon Laziz Ledger App
+          © {new Date().getFullYear()} dukon Daftari
         </div>
       </div>
     );
   }
+
+  // Calculate filtered history and totals
+  const filteredHistory = purchaseHistory.filter(item => {
+    if (historyFilter === 'all') return true;
+    if (!item.date) return true;
+    
+    const itemDateStr = String(item.date);
+    const itemYear = itemDateStr.substring(0, 4);
+    const itemMonth = itemDateStr.substring(5, 7);
+    
+    const today = new Date();
+    const currentYear = today.getFullYear().toString();
+    const currentMonth = (today.getMonth() + 1).toString().padStart(2, '0');
+    
+    if (historyFilter === 'year') {
+      return itemYear === currentYear;
+    }
+    if (historyFilter === 'month') {
+      return itemYear === currentYear && itemMonth === currentMonth;
+    }
+    return true;
+  });
+
+  const totalPurchased = filteredHistory.reduce((sum, item) => sum + item.totalPrice, 0);
+  const totalPaid = filteredHistory.reduce((sum, item) => sum + item.amountPaid, 0);
+  const totalDebt = filteredHistory.reduce((sum, item) => sum + item.remainingDebt, 0);
 
   // MAIN APPLICATION (AUTHORIZED SCREEN)
   return (
@@ -623,7 +664,7 @@ export default function App() {
             </button>
           ) : (
             <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-cyan-500 to-purple-600 flex items-center justify-center font-bold text-white">
-              L
+              D
             </div>
           )}
           
@@ -873,14 +914,14 @@ export default function App() {
                       onChange={(e) => setBuyPrice(e.target.value)}
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500 transition-colors pr-10 font-bold"
                     />
-                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-gray-500 font-bold">$</span>
+                    <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-gray-500 font-bold">UZS</span>
                   </div>
                 </div>
 
                 {/* Grand Total Show */}
                 <div className="bg-white/3 border border-white/5 p-4 rounded-xl flex justify-between items-center">
                   <span className="text-xs text-gray-400 font-bold uppercase tracking-wider">{t.totalPrice}</span>
-                  <span className="text-xl font-extrabold text-cyan-400">${finalPrice}</span>
+                  <span className="text-xl font-extrabold text-cyan-400">{formatCurrency(finalPrice)}</span>
                 </div>
 
                 {/* Payment Type Selector */}
@@ -921,7 +962,7 @@ export default function App() {
                         onChange={(e) => setBuyPaidAmount(e.target.value)}
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500 transition-colors pr-10 font-bold"
                       />
-                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-gray-500 font-bold">$</span>
+                      <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-gray-500 font-bold">UZS</span>
                     </div>
                   </div>
                 )}
@@ -933,7 +974,7 @@ export default function App() {
                       <AlertTriangle className="w-4 h-4" />
                       <span className="text-xs font-bold uppercase tracking-wider">{t.debtAmount}</span>
                     </div>
-                    <span className="text-lg font-extrabold">${Math.max(0, finalPrice - (parseFloat(buyPaidAmount) || 0))}</span>
+                    <span className="text-lg font-extrabold">{formatCurrency(Math.max(0, finalPrice - (parseFloat(buyPaidAmount) || 0)))}</span>
                   </div>
                 )}
 
@@ -951,17 +992,64 @@ export default function App() {
 
             {/* SUB-TAB 2: PURCHASE HISTORY */}
             {productSubTab === 'history' && (
-              <div className="space-y-3 animate-slideDown">
+              <div className="space-y-4 animate-slideDown">
+                {/* Pinned Summary Card */}
+                {purchaseHistory.length > 0 && (
+                  <div className="glass-panel p-4 rounded-2xl bg-gradient-to-tr from-cyan-500/10 to-purple-600/10 border-cyan-500/20 grid grid-cols-3 gap-2 shadow-lg glow-cyan/5">
+                    <div className="col-span-3 text-center border-b border-white/5 pb-2">
+                      <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider">
+                        {lang === 'uz' ? 'Jami Sarhisob' : 'Summary'} ({historyFilter === 'all' ? (lang === 'uz' ? 'Hammasi' : 'All') : historyFilter === 'month' ? (lang === 'uz' ? 'Shu oy' : 'This Month') : (lang === 'uz' ? 'Shu yil' : 'This Year')})
+                      </span>
+                    </div>
+                    <div className="text-center border-r border-white/5">
+                      <div className="text-[8px] text-gray-400 uppercase tracking-widest">{lang === 'uz' ? 'Jami' : 'Total'}</div>
+                      <div className="text-[11px] font-extrabold text-cyan-400 mt-1">{formatCurrency(totalPurchased)}</div>
+                    </div>
+                    <div className="text-center border-r border-white/5">
+                      <div className="text-[8px] text-gray-400 uppercase tracking-widest">{lang === 'uz' ? "To'langan" : 'Total Paid'}</div>
+                      <div className="text-[11px] font-extrabold text-emerald-400 mt-1">{formatCurrency(totalPaid)}</div>
+                    </div>
+                    <div className="text-center">
+                      <div className="text-[8px] text-gray-400 uppercase tracking-widest">{lang === 'uz' ? 'Qolgan Qarz' : 'Remaining Debt'}</div>
+                      <div className="text-[11px] font-extrabold text-rose-400 mt-1">{formatCurrency(totalDebt)}</div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Filter Selector */}
+                {purchaseHistory.length > 0 && (
+                  <div className="flex bg-white/5 border border-white/10 p-1 rounded-xl">
+                    {[
+                      { id: 'all', label: lang === 'uz' ? 'Hammasi' : 'All' },
+                      { id: 'month', label: lang === 'uz' ? 'Shu oy' : 'This Month' },
+                      { id: 'year', label: lang === 'uz' ? 'Shu yil' : 'This Year' }
+                    ].map((filt) => (
+                      <button
+                        key={filt.id}
+                        type="button"
+                        onClick={() => setHistoryFilter(filt.id as any)}
+                        className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${
+                          historyFilter === filt.id
+                            ? 'bg-cyan-500/10 border border-cyan-500/20 text-cyan-400'
+                            : 'text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        {filt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+
                 <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">{t.history}</span>
                 
-                {purchaseHistory.length > 0 ? (
+                {filteredHistory.length > 0 ? (
                   <div className="space-y-3">
-                    {purchaseHistory.map((item) => (
+                    {filteredHistory.map((item) => (
                       <div key={item.id} className="glass-panel p-4 rounded-2xl space-y-3">
                         <div className="flex justify-between items-start">
                           <div>
                             <span className="text-[10px] text-gray-500 font-bold uppercase tracking-wider">ID: {item.id}</span>
-                            <div className="text-xs text-gray-400 mt-0.5">{item.date}</div>
+                            <div className="text-xs text-gray-400 mt-0.5">{cleanDate(item.date)}</div>
                           </div>
 
                           {/* Status Badge */}
@@ -984,22 +1072,24 @@ export default function App() {
                           </div>
                           <div>
                             <div className="text-[9px] text-gray-500 uppercase tracking-widest">{lang === 'uz' ? 'Narxi' : 'Price'}</div>
-                            <div className="text-xs font-bold text-gray-200">${item.pricePerKg}/kg</div>
+                            <div className="text-xs font-bold text-gray-200">{formatCurrency(item.pricePerKg)}/kg</div>
                           </div>
                           <div>
                             <div className="text-[9px] text-gray-500 uppercase tracking-widest">{lang === 'uz' ? 'Jami' : 'Total'}</div>
-                            <div className="text-xs font-extrabold text-cyan-400">${item.totalPrice}</div>
+                            <div className="text-xs font-extrabold text-cyan-400">{formatCurrency(item.totalPrice)}</div>
                           </div>
                         </div>
 
                         {/* Paid/Remaining Debt details */}
                         <div className="flex justify-between text-xs font-medium">
                           <span className="text-gray-400">
-                            {t.paidDetails.replace('${paid}', item.amountPaid.toString()).replace('${total}', item.totalPrice.toString())}
+                            {lang === 'uz' 
+                              ? `To'langan: ${formatCurrency(item.amountPaid)} / Jami: ${formatCurrency(item.totalPrice)}` 
+                              : `Paid: ${formatCurrency(item.amountPaid)} / Total: ${formatCurrency(item.totalPrice)}`}
                           </span>
                           {item.remainingDebt > 0 && (
                             <span className="text-rose-400 font-bold">
-                              {t.remainingDebt}: ${item.remainingDebt}
+                              {t.remainingDebt}: {formatCurrency(item.remainingDebt)}
                             </span>
                           )}
                         </div>
@@ -1008,7 +1098,9 @@ export default function App() {
                   </div>
                 ) : (
                   <div className="text-center py-12 bg-white/2 border border-white/5 rounded-2xl text-gray-500 text-xs font-light">
-                    {t.noHistory}
+                    {historyFilter === 'all' 
+                      ? t.noHistory 
+                      : (lang === 'uz' ? 'Tanlangan davr uchun xaridlar mavjud emas.' : 'No purchases found for the selected period.')}
                   </div>
                 )}
               </div>
@@ -1020,7 +1112,7 @@ export default function App() {
                 <div className="flex justify-between items-center">
                   <span className="text-xs font-semibold uppercase tracking-wider text-gray-400">{t.remainingDebt}</span>
                   <span className="text-xs font-extrabold text-rose-400">
-                    Jami: ${debtsList.reduce((sum, item) => sum + item.remainingDebt, 0).toFixed(2)}
+                    Jami: {formatCurrency(debtsList.reduce((sum, item) => sum + item.remainingDebt, 0))}
                   </span>
                 </div>
 
@@ -1030,15 +1122,15 @@ export default function App() {
                       <div key={item.id} className="glass-panel p-4 rounded-2xl space-y-4 border-rose-500/10">
                         <div className="flex justify-between items-start">
                           <div>
-                            <span className="text-[10px] text-rose-400 font-bold uppercase tracking-wider">{t.date}: {item.date}</span>
+                            <span className="text-[10px] text-rose-400 font-bold uppercase tracking-wider">{t.date}: {cleanDate(item.date)}</span>
                             <div className="text-xs text-gray-200 mt-1 font-bold">
-                              {item.quantityKg} kg x ${item.pricePerKg} = ${item.totalPrice}
+                              {item.quantityKg} kg x {formatCurrency(item.pricePerKg)} = {formatCurrency(item.totalPrice)}
                             </div>
                           </div>
                           
                           <div className="text-right">
                             <span className="text-[9px] text-gray-500 block uppercase tracking-widest">{t.remainingDebt}</span>
-                            <span className="text-sm font-extrabold text-rose-400">${item.remainingDebt}</span>
+                            <span className="text-sm font-extrabold text-rose-400">{formatCurrency(item.remainingDebt)}</span>
                           </div>
                         </div>
 
@@ -1046,7 +1138,7 @@ export default function App() {
                         {payingPurchaseId === item.id ? (
                           <div className="space-y-3 bg-white/3 p-3 rounded-xl border border-white/5 animate-fadeIn">
                             <div className="space-y-2">
-                              <label className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">{t.enterAmount} ($)</label>
+                              <label className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">{t.enterAmount} (UZS)</label>
                               <div className="relative">
                                 <input
                                   type="number"
@@ -1097,7 +1189,7 @@ export default function App() {
                             className="w-full py-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 rounded-xl text-xs font-bold text-rose-400 transition-colors flex items-center justify-center space-x-1"
                           >
                             <CreditCard className="w-3.5 h-3.5" />
-                            <span>{t.payBtn} ({t.remainingDebt}: ${item.remainingDebt})</span>
+                            <span>{t.payBtn} ({t.remainingDebt}: {formatCurrency(item.remainingDebt)})</span>
                           </button>
                         )}
                       </div>
@@ -1236,7 +1328,7 @@ export default function App() {
 
       {/* Footer / Copyright */}
       <footer className="glass-panel px-4 py-2 border-t border-white/5 text-center text-[9px] text-gray-500 font-semibold tracking-wide flex justify-between items-center">
-        <span>{lang === 'uz' ? 'dukon Laziz Daftari' : 'dukon Laziz Ledger'}</span>
+        <span>{lang === 'uz' ? 'dukon Daftari' : 'dukon Daftari Ledger'}</span>
         <span>v1.0.0</span>
       </footer>
     </div>

@@ -44,9 +44,9 @@ async function startServer() {
         const chatId = msg.chat.id;
         
         const welcomeText = 
-          `👋 Assalomu alaykum! dukon Laziz tizimiga xush kelibsiz.\n\n` +
+          `👋 Assalomu alaykum! dukon Daftari tizimiga xush kelibsiz.\n\n` +
           `🔒 Tizimdan foydalanish uchun telefon raqamingizni yuborish orqali avtorizatsiyadan o'ting.\n\n` +
-          `👋 Welcome to dukon Laziz!\n` +
+          `👋 Welcome to dukon Daftari!\n` +
           `🔒 To use the bot, please verify your identity by sharing your contact.`;
         
         await bot?.sendMessage(chatId, welcomeText, {
@@ -97,7 +97,7 @@ async function startServer() {
             
             const replyMarkupInline = appLink ? {
               inline_keyboard: [
-                [{ text: '🛍&nbsp;dukon Laziz App', web_app: { url: appLink } }]
+                [{ text: '🛍&nbsp;dukon Daftari App', web_app: { url: appLink } }]
               ]
             } : {
               inline_keyboard: [
@@ -280,7 +280,7 @@ async function startServer() {
 
   // Start Server
   app.listen(Number(PORT), '0.0.0.0', () => {
-    console.log(`✅ dukon Laziz Server running on http://localhost:${PORT}`);
+    console.log(`✅ dukon Daftari Server running on http://localhost:${PORT}`);
   });
 }
 
