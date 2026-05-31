@@ -45,6 +45,10 @@ function doGet(e) {
       return jsonResponse(getDebts(sheet, productId, phone));
     }
     
+    if (action === "getAllUsers") {
+      return jsonResponse(getAllUsers(sheet));
+    }
+    
     return jsonResponse({ success: false, error: "Invalid GET action: " + action });
   } catch (error) {
     return jsonResponse({ success: false, error: error.toString() });
@@ -72,6 +76,14 @@ function doPost(e) {
     
     if (action === "addAllowedPhone") {
       return jsonResponse(addAllowedPhone(sheet, postData.data));
+    }
+    
+    if (action === "deleteAllowedUser") {
+      return jsonResponse(deleteAllowedUser(sheet, postData.data));
+    }
+    
+    if (action === "updatePurchase") {
+      return jsonResponse(updatePurchase(sheet, postData.data));
     }
     
     return jsonResponse({ success: false, error: "Invalid POST action: " + action });
@@ -358,4 +370,73 @@ function addAllowedPhone(ss, user) {
   
   sheet.appendRow(["+" + cleanPhone, user.name, "Active"]);
   return { success: true, message: "User phone added", phone: user.phone };
+}
+
+// Get all allowed users (admin feature)
+function getAllUsers(ss) {
+  var sheet = ss.getSheetByName("AllowedUsers");
+  var data = sheet.getDataRange().getValues();
+  var users = [];
+  
+  for (var i = 1; i < data.length; i++) {
+    users.push({
+      phone: data[i][0],
+      name: data[i][1],
+      status: data[i][2]
+    });
+  }
+  
+  return { success: true, users: users };
+}
+
+// Delete an allowed user (admin feature)
+function deleteAllowedUser(ss, user) {
+  var sheet = ss.getSheetByName("AllowedUsers");
+  var data = sheet.getDataRange().getValues();
+  var cleanTargetPhone = cleanPhoneNumber(user.phone);
+  
+  for (var i = 1; i < data.length; i++) {
+    var userPhone = cleanPhoneNumber(data[i][0]);
+    if (userPhone === cleanTargetPhone) {
+      sheet.deleteRow(i + 1);
+      return { success: true, message: "User deleted successfully" };
+    }
+  }
+  
+  return { success: false, error: "User not found" };
+}
+
+// Update purchase record details (admin feature)
+function updatePurchase(ss, item) {
+  var sheet = ss.getSheetByName("Purchases");
+  var rows = sheet.getDataRange().getValues();
+  var purchaseId = item.id;
+  
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i][0] === purchaseId) {
+      var quantity = Number(item.quantityKg);
+      var price = Number(item.pricePerKg);
+      var total = Math.round(quantity * price);
+      var paid = Number(item.amountPaid);
+      var debt = total - paid;
+      if (debt < 0) debt = 0;
+      
+      var status = "Paid";
+      if (debt > 0) {
+        status = paid === 0 ? "Debt" : "Partially Paid";
+      }
+      
+      // Columns: 1=Id, 2=ProductId, 3=Date, 4=QuantityKg, 5=PricePerKg, 6=TotalPrice, 7=AmountPaid, 8=RemainingDebt, 9=Status, 10=Phone
+      sheet.getRange(i + 1, 4).setValue(quantity);
+      sheet.getRange(i + 1, 5).setValue(price);
+      sheet.getRange(i + 1, 6).setValue(total);
+      sheet.getRange(i + 1, 7).setValue(paid);
+      sheet.getRange(i + 1, 8).setValue(debt);
+      sheet.getRange(i + 1, 9).setValue(status);
+      
+      return { success: true, message: "Purchase updated successfully" };
+    }
+  }
+  
+  return { success: false, error: "Purchase record not found" };
 }

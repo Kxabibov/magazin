@@ -260,6 +260,56 @@ async function startServer() {
     }
   });
 
+  // 8. Get all allowed users (admin only)
+  app.get('/api/admin/users', async (req, res) => {
+    try {
+      const response = await fetch(`${GOOGLE_SCRIPT_URL}?action=getAllUsers`);
+      const data = await response.json();
+      return res.json(data);
+    } catch (error: any) {
+      console.error('Error in /api/admin/users:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // 9. Delete an allowed user (admin only)
+  app.post('/api/admin/delete-user', async (req, res) => {
+    try {
+      const response = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'deleteAllowedUser',
+          data: req.body
+        })
+      });
+      const data = await response.json();
+      return res.json(data);
+    } catch (error: any) {
+      console.error('Error in /api/admin/delete-user:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
+  // 10. Update a purchase record (admin only)
+  app.post('/api/admin/update-purchase', async (req, res) => {
+    try {
+      const response = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'updatePurchase',
+          data: req.body
+        })
+      });
+      const data = await response.json();
+      return res.json(data);
+    } catch (error: any) {
+      console.error('Error in /api/admin/update-purchase:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   // Vite or static files serving based on NODE_ENV
   if (process.env.NODE_ENV !== 'production') {
     console.log('Integrating Vite dev middleware...');

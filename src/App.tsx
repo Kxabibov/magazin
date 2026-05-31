@@ -56,7 +56,7 @@ export default function App() {
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [productSubTab, setProductSubTab] = useState<'buy' | 'history' | 'debt'>('buy');
-  const [adminTab, setAdminTab] = useState<'users' | 'analytics'>('users');
+  const [adminTab, setAdminTab] = useState<'users' | 'analytics' | 'transactions'>('users');
   const [showAdminMenu, setShowAdminMenu] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(false);
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -81,6 +81,18 @@ export default function App() {
   const [purchaseHistory, setPurchaseHistory] = useState<PurchaseRecord[]>([]);
   const [debtsList, setDebtsList] = useState<PurchaseRecord[]>([]);
   const [historyFilter, setHistoryFilter] = useState<'all' | 'month' | 'year'>('all');
+  const [selectedMonth, setSelectedMonth] = useState<string>('');
+
+  // Admin data states
+  const [allUsers, setAllUsers] = useState<{ phone: string; name: string; status: string }[]>([]);
+  const [allTransactions, setAllTransactions] = useState<PurchaseRecord[]>([]);
+  const [adminSearchQuery, setAdminSearchQuery] = useState<string>('');
+
+  // Admin edit states
+  const [editingPurchase, setEditingPurchase] = useState<PurchaseRecord | null>(null);
+  const [editWeight, setEditWeight] = useState<string>('');
+  const [editPrice, setEditPrice] = useState<string>('');
+  const [editPaid, setEditPaid] = useState<string>('');
 
   const formatCurrency = (amount: number | string) => {
     const num = Math.round(Number(amount) || 0);
@@ -94,6 +106,29 @@ export default function App() {
       return dateStr.replace('T', ' ').replace(/\.\d+Z$/, '').substring(0, 16);
     }
     return dateStr;
+  };
+
+  const formatNumberInput = (value: string) => {
+    const clean = value.replace(/\D/g, '');
+    if (!clean) return '';
+    return clean.replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+  };
+
+  const parseFormattedNumber = (value: string): number => {
+    if (!value) return 0;
+    return Number(value.replace(/\s/g, '')) || 0;
+  };
+
+  const cleanPhoneNumber = (phone: any) => {
+    if (!phone) return '';
+    return String(phone).replace(/[\s\-\(\)\+]/g, '');
+  };
+
+  const getUserName = (phone: any) => {
+    if (!phone) return '';
+    const cleanP = cleanPhoneNumber(phone);
+    const found = allUsers.find(u => cleanPhoneNumber(u.phone) === cleanP);
+    return found ? found.name : String(phone);
   };
 
   // Language state
@@ -144,6 +179,14 @@ export default function App() {
       refreshProductData();
     }
   }, [selectedProduct, productSubTab]);
+
+  // Trigger admin list fetches when admin is active
+  useEffect(() => {
+    if (isAuthenticated && isAdmin) {
+      fetchAdminUsers();
+      fetchAdminTransactions();
+    }
+  }, [isAuthenticated, isAdmin, adminTab]);
 
   const verifyUserAuth = async (phone: string, fallbackName: string) => {
     setAuthChecking(true);
@@ -248,13 +291,13 @@ export default function App() {
 
   // Auto-calculate values for purchasing
   const weightVal = parseFloat(buyWeight) || 0;
-  const priceVal = parseFloat(buyPrice) || 0;
+  const priceVal = parseFormattedNumber(buyPrice);
   const finalPrice = Math.round(weightVal * priceVal);
   
   // Set paid amount automatically based on selector
   useEffect(() => {
     if (paymentType === 'full_paid') {
-      setBuyPaidAmount(finalPrice.toString());
+      setBuyPaidAmount(formatNumberInput(finalPrice.toString()));
       setIsDebtMode(false);
     } else if (paymentType === 'full_debt') {
       setBuyPaidAmount('0');
@@ -277,7 +320,7 @@ export default function App() {
     setErrorMessage('');
     setSuccessMessage('');
 
-    const paidVal = parseFloat(buyPaidAmount) || 0;
+    const paidVal = parseFormattedNumber(buyPaidAmount);
 
     const payload = {
       productId: selectedProduct.id,
@@ -327,7 +370,7 @@ export default function App() {
   const handlePayDebt = async (purchaseId: string) => {
     if (!currentUser) return;
     const amountStr = payAmount[purchaseId];
-    const amount = parseFloat(amountStr) || 0;
+    const amount = parseFormattedNumber(amountStr) || 0;
     
     if (amount <= 0) return;
 
@@ -408,6 +451,102 @@ export default function App() {
         setTimeout(() => setSuccessMessage(''), 3000);
       } else {
         setErrorMessage(data.error || 'Failed to add user');
+      }
+    } catch (err) {
+      console.error(err);
+      setErrorMessage('Server connection error.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchAdminUsers = async () => {
+    try {
+      const res = await fetch('/api/admin/users');
+      const data = await res.json();
+      if (data.success) {
+        setAllUsers(data.users);
+      }
+    } catch (err) {
+      console.error('Error fetching admin users:', err);
+    }
+  };
+
+  const handleDeleteUser = async (phone: string) => {
+    if (!window.confirm(lang === 'uz' ? `Haqiqatan ham ushbu foydalanuvchidan ruxsatni olib tashlamoqchimisiz?` : `Are you sure you want to revoke access for this user?`)) return;
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/delete-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSuccessMessage(lang === 'uz' ? "Ruxsat muvaffaqiyatli o'chirildi!" : "Access revoked successfully!");
+        await fetchAdminUsers();
+        setTimeout(() => setSuccessMessage(''), 3000);
+      } else {
+        setErrorMessage(data.error || 'Delete user error');
+      }
+    } catch (err) {
+      console.error(err);
+      setErrorMessage('Server connection error.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const fetchAdminTransactions = async () => {
+    setLoading(true);
+    try {
+      const res = await fetch('/api/history');
+      const data = await res.json();
+      if (data.success) {
+        setAllTransactions(data.history);
+      }
+    } catch (err) {
+      console.error('Error fetching admin transactions:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleUpdatePurchase = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingPurchase) return;
+    const newWeight = parseFloat(editWeight) || 0;
+    const newPrice = parseFormattedNumber(editPrice);
+    const newPaid = parseFormattedNumber(editPaid);
+
+    if (newWeight <= 0 || newPrice <= 0) {
+      alert(lang === 'uz' ? 'Og\'irlik va narx noldan katta bo\'lishi kerak' : 'Weight and price must be greater than zero');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/update-purchase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editingPurchase.id,
+          quantityKg: newWeight,
+          pricePerKg: newPrice,
+          amountPaid: newPaid
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSuccessMessage(lang === 'uz' ? "Xarid muvaffaqiyatli yangilandi!" : "Purchase updated successfully!");
+        setEditingPurchase(null);
+        await fetchAdminTransactions();
+        if (selectedProduct) {
+          await refreshProductData();
+        }
+        setTimeout(() => setSuccessMessage(''), 3000);
+      } else {
+        setErrorMessage(data.error || 'Update purchase error');
       }
     } catch (err) {
       console.error(err);
@@ -907,11 +1046,10 @@ export default function App() {
                   <label className="text-xs text-gray-400 font-medium">{t.pricePerKg}</label>
                   <div className="relative">
                     <input
-                      type="number"
-                      step="any"
-                      placeholder="0.00"
+                      type="text"
+                      placeholder="0"
                       value={buyPrice}
-                      onChange={(e) => setBuyPrice(e.target.value)}
+                      onChange={(e) => setBuyPrice(formatNumberInput(e.target.value))}
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500 transition-colors pr-10 font-bold"
                     />
                     <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-gray-500 font-bold">UZS</span>
@@ -955,11 +1093,10 @@ export default function App() {
                     <label className="text-xs text-gray-400 font-medium">{t.paidAmount}</label>
                     <div className="relative">
                       <input
-                        type="number"
-                        step="any"
-                        placeholder="0.00"
+                        type="text"
+                        placeholder="0"
                         value={buyPaidAmount}
-                        onChange={(e) => setBuyPaidAmount(e.target.value)}
+                        onChange={(e) => setBuyPaidAmount(formatNumberInput(e.target.value))}
                         className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500 transition-colors pr-10 font-bold"
                       />
                       <span className="absolute right-4 top-1/2 -translate-y-1/2 text-xs text-gray-500 font-bold">UZS</span>
@@ -974,7 +1111,7 @@ export default function App() {
                       <AlertTriangle className="w-4 h-4" />
                       <span className="text-xs font-bold uppercase tracking-wider">{t.debtAmount}</span>
                     </div>
-                    <span className="text-lg font-extrabold">{formatCurrency(Math.max(0, finalPrice - (parseFloat(buyPaidAmount) || 0)))}</span>
+                    <span className="text-lg font-extrabold">{formatCurrency(Math.max(0, finalPrice - parseFormattedNumber(buyPaidAmount)))}</span>
                   </div>
                 )}
 
@@ -998,7 +1135,7 @@ export default function App() {
                   <div className="glass-panel p-4 rounded-2xl bg-gradient-to-tr from-cyan-500/10 to-purple-600/10 border-cyan-500/20 grid grid-cols-3 gap-2 shadow-lg glow-cyan/5">
                     <div className="col-span-3 text-center border-b border-white/5 pb-2">
                       <span className="text-[10px] text-cyan-400 font-bold uppercase tracking-wider">
-                        {lang === 'uz' ? 'Jami Sarhisob' : 'Summary'} ({historyFilter === 'all' ? (lang === 'uz' ? 'Hammasi' : 'All') : historyFilter === 'month' ? (lang === 'uz' ? 'Shu oy' : 'This Month') : (lang === 'uz' ? 'Shu yil' : 'This Year')})
+                        {lang === 'uz' ? 'Jami Sarhisob' : 'Summary'} ({historyFilter === 'all' ? (lang === 'uz' ? 'Hammasi' : 'All') : historyFilter === 'month' ? (lang === 'uz' ? `${selectedMonth}-oy` : `Month: ${selectedMonth}`) : (lang === 'uz' ? 'Shu yil' : 'This Year')})
                       </span>
                     </div>
                     <div className="text-center border-r border-white/5">
@@ -1018,25 +1155,68 @@ export default function App() {
 
                 {/* Filter Selector */}
                 {purchaseHistory.length > 0 && (
-                  <div className="flex bg-white/5 border border-white/10 p-1 rounded-xl">
-                    {[
-                      { id: 'all', label: lang === 'uz' ? 'Hammasi' : 'All' },
-                      { id: 'month', label: lang === 'uz' ? 'Shu oy' : 'This Month' },
-                      { id: 'year', label: lang === 'uz' ? 'Shu yil' : 'This Year' }
-                    ].map((filt) => (
-                      <button
-                        key={filt.id}
-                        type="button"
-                        onClick={() => setHistoryFilter(filt.id as any)}
-                        className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${
-                          historyFilter === filt.id
-                            ? 'bg-cyan-500/10 border border-cyan-500/20 text-cyan-400'
-                            : 'text-gray-400 hover:text-white'
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => { setHistoryFilter('all'); setSelectedMonth(''); }}
+                      className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${
+                        historyFilter === 'all'
+                          ? 'bg-cyan-500/10 border border-cyan-500/20 text-cyan-400'
+                          : 'text-gray-400 hover:text-white bg-white/5 border border-white/5'
+                      }`}
+                    >
+                      {lang === 'uz' ? 'Hammasi' : 'All'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setHistoryFilter('year'); setSelectedMonth(''); }}
+                      className={`flex-1 py-1.5 text-[10px] font-bold rounded-lg transition-all ${
+                        historyFilter === 'year'
+                          ? 'bg-cyan-500/10 border border-cyan-500/20 text-cyan-400'
+                          : 'text-gray-400 hover:text-white bg-white/5 border border-white/5'
+                      }`}
+                    >
+                      {lang === 'uz' ? 'Shu yil' : 'This Year'}
+                    </button>
+                    <div className="flex-1 relative">
+                      <select
+                        value={selectedMonth}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          setSelectedMonth(val);
+                          if (val) {
+                            setHistoryFilter('month');
+                          } else {
+                            setHistoryFilter('all');
+                          }
+                        }}
+                        className={`w-full py-1.5 px-2 text-[10px] font-bold rounded-lg bg-white/5 border text-gray-400 focus:outline-none focus:border-cyan-500 transition-colors ${
+                          historyFilter === 'month' ? 'border-cyan-500 text-cyan-400 bg-cyan-500/5' : 'border-white/5'
                         }`}
                       >
-                        {filt.label}
-                      </button>
-                    ))}
+                        <option value="" className="bg-[#0b0f19] text-gray-400">
+                          {lang === 'uz' ? 'Oylar' : 'Months'}
+                        </option>
+                        {[
+                          { val: '01', label: lang === 'uz' ? 'Yanvar' : 'January' },
+                          { val: '02', label: lang === 'uz' ? 'Fevral' : 'February' },
+                          { val: '03', label: lang === 'uz' ? 'Mart' : 'March' },
+                          { val: '04', label: lang === 'uz' ? 'Aprel' : 'April' },
+                          { val: '05', label: lang === 'uz' ? 'May' : 'May' },
+                          { val: '06', label: lang === 'uz' ? 'Iyun' : 'June' },
+                          { val: '07', label: lang === 'uz' ? 'Iyul' : 'July' },
+                          { val: '08', label: lang === 'uz' ? 'Avgust' : 'August' },
+                          { val: '09', label: lang === 'uz' ? 'Sentyabr' : 'September' },
+                          { val: '10', label: lang === 'uz' ? 'Oktyabr' : 'October' },
+                          { val: '11', label: lang === 'uz' ? 'Noyabr' : 'November' },
+                          { val: '12', label: lang === 'uz' ? 'Dekabr' : 'December' }
+                        ].map((m) => (
+                          <option key={m.val} value={m.val} className="bg-[#0b0f19] text-gray-300">
+                            {m.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
                 )}
 
@@ -1141,19 +1321,18 @@ export default function App() {
                               <label className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">{t.enterAmount} (UZS)</label>
                               <div className="relative">
                                 <input
-                                  type="number"
-                                  step="any"
-                                  placeholder={item.remainingDebt.toString()}
+                                  type="text"
+                                  placeholder={formatNumberInput(item.remainingDebt.toString())}
                                   value={payAmount[item.id] || ''}
                                   onChange={(e) => {
-                                    const val = e.target.value;
+                                    const val = formatNumberInput(e.target.value);
                                     setPayAmount(prev => ({ ...prev, [item.id]: val }));
                                   }}
                                   className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-cyan-500 transition-colors pr-10 font-bold"
                                 />
                                 <button 
                                   type="button"
-                                  onClick={() => setPayAmount(prev => ({ ...prev, [item.id]: item.remainingDebt.toString() }))}
+                                  onClick={() => setPayAmount(prev => ({ ...prev, [item.id]: formatNumberInput(item.remainingDebt.toString()) }))}
                                   className="absolute right-2 top-1/2 -translate-y-1/2 text-[9px] uppercase font-bold text-cyan-400 px-1.5 py-0.5 bg-cyan-500/10 rounded"
                                 >
                                   Max
@@ -1210,37 +1389,48 @@ export default function App() {
           <div className="space-y-4 animate-fadeIn">
             
             {/* Admin Tabs */}
-            <div className="flex bg-white/5 border border-white/10 p-1 rounded-xl">
+            <div className="flex bg-white/5 border border-white/10 p-1 rounded-xl gap-1">
               <button
+                type="button"
                 onClick={() => setAdminTab('users')}
-                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center space-x-1 ${
+                className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition-all flex items-center justify-center space-x-1 ${
                   adminTab === 'users' 
                     ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-md' 
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
-                <UserPlus className="w-3.5 h-3.5" />
-                <span>{lang === 'uz' ? 'Ruxsat berish' : 'Manage Access'}</span>
+                <UserPlus className="w-3 h-3" />
+                <span>{lang === 'uz' ? 'Ishchilar' : 'Workers'}</span>
               </button>
               <button
-                onClick={() => {
-                  setAdminTab('analytics');
-                  // Trigger fetch users if needed, or other analytics loading
-                }}
-                className={`flex-1 py-2 text-xs font-bold rounded-lg transition-all flex items-center justify-center space-x-1 ${
+                type="button"
+                onClick={() => setAdminTab('transactions')}
+                className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition-all flex items-center justify-center space-x-1 ${
+                  adminTab === 'transactions' 
+                    ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-md' 
+                    : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                <History className="w-3 h-3" />
+                <span>{lang === 'uz' ? 'Xaridlar' : 'Ledger'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAdminTab('analytics')}
+                className={`flex-1 py-2 text-[10px] font-bold rounded-lg transition-all flex items-center justify-center space-x-1 ${
                   adminTab === 'analytics' 
                     ? 'bg-gradient-to-r from-purple-500 to-purple-600 text-white shadow-md' 
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
-                <TrendingUp className="w-3.5 h-3.5" />
-                <span>{lang === 'uz' ? 'Tahlillar' : 'Analytics'}</span>
+                <TrendingUp className="w-3 h-3" />
+                <span>{lang === 'uz' ? 'Tahlil' : 'Stats'}</span>
               </button>
             </div>
 
             {/* TAB 1: ADD AUTHORIZED PHONE */}
             {adminTab === 'users' && (
-              <div className="space-y-4">
+              <div className="space-y-4 animate-slideDown">
                 <form onSubmit={handleAddUser} className="glass-panel p-5 rounded-2xl glow-purple space-y-4">
                   <div className="flex items-center space-x-2 border-b border-white/10 pb-3">
                     <UserPlus className="text-purple-400 w-5 h-5" />
@@ -1279,6 +1469,40 @@ export default function App() {
                   </button>
                 </form>
 
+                {/* Directory / Access List */}
+                <div className="glass-panel p-5 rounded-2xl space-y-4">
+                  <div className="flex justify-between items-center border-b border-white/10 pb-3">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-gray-200">
+                      {lang === 'uz' ? 'Ruxsat berilgan ishchilar' : 'Allowed Workers'}
+                    </span>
+                    <span className="text-[10px] text-purple-400 bg-purple-500/10 border border-purple-500/20 px-2.5 py-0.5 rounded-full font-extrabold">{allUsers.length}</span>
+                  </div>
+
+                  {allUsers.length > 0 ? (
+                    <div className="space-y-2.5 max-h-60 overflow-y-auto">
+                      {allUsers.map((u) => (
+                        <div key={u.phone} className="flex justify-between items-center p-3 bg-white/3 rounded-xl border border-white/5">
+                          <div>
+                            <div className="text-xs font-bold text-gray-200">{u.name}</div>
+                            <div className="text-[10px] text-gray-500 mt-0.5">{u.phone}</div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteUser(u.phone)}
+                            className="px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 rounded-lg text-[10px] font-bold border border-rose-500/10 active:scale-95 transition-all"
+                          >
+                            {lang === 'uz' ? "O'chirish" : 'Delete'}
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-xs text-gray-500 font-light">
+                      {lang === 'uz' ? 'Ishchilar ro\'yxati bo\'sh' : 'No allowed workers found.'}
+                    </div>
+                  )}
+                </div>
+
                 <div className="glass-panel p-4 rounded-2xl space-y-2 bg-purple-950/5 border-purple-500/10">
                   <h3 className="text-xs font-bold text-purple-400 uppercase tracking-wider flex items-center">
                     <ShieldCheck className="w-4 h-4 mr-1.5" />
@@ -1286,17 +1510,168 @@ export default function App() {
                   </h3>
                   <p className="text-[10px] text-gray-400 leading-relaxed font-light">
                     {lang === 'uz' 
-                      ? 'Tizimga faqat shu erda kiritilgan telefon raqamlari orqali kirish mumkin. Agar raqam kiritilmagan bo\'lsa, Telegram bot ularga dastur havolasini taqdim etmaydi.'
-                      : 'Only phone numbers recorded here can log in. Unauthorized users are blocked automatically by the Telegram Bot API checks.'
-                    }
+                      ? 'Tizimga faqat shu yerda kiritilgan telefon raqamlari orqali kirish mumkin. Agar raqam kiritilmagan bo\'lsa, Telegram bot ularga dastur havolasini taqdim etmaydi.'
+                      : 'Only phone numbers recorded here can log in. Unauthorized users are blocked automatically.'}
                   </p>
                 </div>
               </div>
             )}
 
-            {/* TAB 2: ANALYTICS / STATS OVERVIEW */}
+            {/* TAB 2: TRANSACTIONS LIST FOR ADMIN */}
+            {adminTab === 'transactions' && (
+              <div className="space-y-4 animate-slideDown">
+                {/* Search input */}
+                <div className="relative">
+                  <input
+                    type="text"
+                    placeholder={lang === 'uz' ? 'Ishchi yoki mahsulot nomi bo\'yicha qidirish...' : 'Search by worker or product...'}
+                    value={adminSearchQuery}
+                    onChange={(e) => setAdminSearchQuery(e.target.value)}
+                    className="w-full bg-white/5 border border-white/10 rounded-xl pl-4 pr-10 py-2.5 text-xs text-gray-200 focus:outline-none focus:border-purple-500 transition-colors font-semibold"
+                  />
+                  {adminSearchQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setAdminSearchQuery('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 text-xs hover:text-white font-bold"
+                    >
+                      Clear
+                    </button>
+                  )}
+                </div>
+
+                {/* Live stats card for filtered list */}
+                <div className="glass-panel p-4 rounded-2xl bg-gradient-to-tr from-cyan-500/5 to-purple-600/5 border-white/5 grid grid-cols-3 gap-2 text-center shadow-lg">
+                  <div className="border-r border-white/5">
+                    <div className="text-[8px] text-gray-400 uppercase tracking-widest">{lang === 'uz' ? 'Jami Sotuv' : 'Total Sales'}</div>
+                    <div className="text-[11px] font-extrabold text-cyan-400 mt-1">
+                      {formatCurrency(
+                        allTransactions
+                          .filter(item => {
+                            const name = getUserName(item.phone).toLowerCase();
+                            const prod = (products.find(p => p.id === item.productId)?.name || '').toLowerCase();
+                            const query = adminSearchQuery.toLowerCase();
+                            return name.includes(query) || prod.includes(query) || item.phone.toLowerCase().includes(query);
+                          })
+                          .reduce((sum, item) => sum + item.totalPrice, 0)
+                      )}
+                    </div>
+                  </div>
+                  <div className="border-r border-white/5">
+                    <div className="text-[8px] text-gray-400 uppercase tracking-widest">{lang === 'uz' ? "To'langan" : 'Total Paid'}</div>
+                    <div className="text-[11px] font-extrabold text-emerald-400 mt-1">
+                      {formatCurrency(
+                        allTransactions
+                          .filter(item => {
+                            const name = getUserName(item.phone).toLowerCase();
+                            const prod = (products.find(p => p.id === item.productId)?.name || '').toLowerCase();
+                            const query = adminSearchQuery.toLowerCase();
+                            return name.includes(query) || prod.includes(query) || item.phone.toLowerCase().includes(query);
+                          })
+                          .reduce((sum, item) => sum + item.amountPaid, 0)
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-[8px] text-gray-400 uppercase tracking-widest">{lang === 'uz' ? 'Qolgan Qarz' : 'Total Debt'}</div>
+                    <div className="text-[11px] font-extrabold text-rose-400 mt-1">
+                      {formatCurrency(
+                        allTransactions
+                          .filter(item => {
+                            const name = getUserName(item.phone).toLowerCase();
+                            const prod = (products.find(p => p.id === item.productId)?.name || '').toLowerCase();
+                            const query = adminSearchQuery.toLowerCase();
+                            return name.includes(query) || prod.includes(query) || item.phone.toLowerCase().includes(query);
+                          })
+                          .reduce((sum, item) => sum + item.remainingDebt, 0)
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* List of transactions */}
+                <div className="space-y-3">
+                  {allTransactions
+                    .filter(item => {
+                      const name = getUserName(item.phone).toLowerCase();
+                      const prod = (products.find(p => p.id === item.productId)?.name || '').toLowerCase();
+                      const query = adminSearchQuery.toLowerCase();
+                      return name.includes(query) || prod.includes(query) || item.phone.toLowerCase().includes(query);
+                    })
+                    .map((item) => (
+                      <div key={item.id} className="glass-panel p-4 rounded-2xl space-y-3 border-white/5">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="text-[9px] text-purple-400 font-bold uppercase tracking-wider bg-purple-500/10 px-2.5 py-0.5 rounded-md">
+                              {getUserName(item.phone)}
+                            </span>
+                            <div className="text-[11px] font-bold text-gray-200 mt-1.5">
+                              {products.find(p => p.id === item.productId)?.name || item.productId}
+                            </div>
+                            <div className="text-[10px] text-gray-500 mt-0.5">{cleanDate(item.date)}</div>
+                          </div>
+
+                          <div className="text-right">
+                            <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                              item.status === 'Paid'
+                                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20'
+                                : item.status === 'Partially Paid'
+                                ? 'bg-amber-500/10 text-amber-400 border border-amber-500/20'
+                                : 'bg-rose-500/10 text-rose-400 border border-rose-500/20'
+                            }`}>
+                              {item.status === 'Paid' ? t.paid : item.status === 'Partially Paid' ? t.partial : t.onlyDebt}
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setEditingPurchase(item);
+                                setEditWeight(item.quantityKg.toString());
+                                setEditPrice(formatNumberInput(item.pricePerKg.toString()));
+                                setEditPaid(formatNumberInput(item.amountPaid.toString()));
+                              }}
+                              className="block mt-2 text-[10px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-1 rounded-lg hover:bg-cyan-500/20 active:scale-95 transition-all ml-auto"
+                            >
+                              {lang === 'uz' ? 'Tahrirlash' : 'Edit'}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-2 border-t border-b border-white/5 py-2 text-center text-[10px]">
+                          <div>
+                            <div className="text-[8px] text-gray-500 uppercase tracking-widest">{lang === 'uz' ? 'Og\'irlik' : 'Weight'}</div>
+                            <div className="font-bold text-gray-300">{item.quantityKg} kg</div>
+                          </div>
+                          <div>
+                            <div className="text-[8px] text-gray-500 uppercase tracking-widest">{lang === 'uz' ? 'Narxi' : 'Price'}</div>
+                            <div className="font-bold text-gray-300">{formatCurrency(item.pricePerKg)}/kg</div>
+                          </div>
+                          <div>
+                            <div className="text-[8px] text-gray-500 uppercase tracking-widest">{lang === 'uz' ? 'Jami' : 'Total'}</div>
+                            <div className="font-extrabold text-cyan-400">{formatCurrency(item.totalPrice)}</div>
+                          </div>
+                        </div>
+
+                        <div className="flex justify-between text-[11px] font-medium text-gray-400">
+                          <span>
+                            {lang === 'uz'
+                              ? `To'langan: ${formatCurrency(item.amountPaid)}`
+                              : `Paid: ${formatCurrency(item.amountPaid)}`}
+                          </span>
+                          {item.remainingDebt > 0 && (
+                            <span className="text-rose-400 font-bold">
+                              {t.remainingDebt}: {formatCurrency(item.remainingDebt)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            )}
+
+            {/* TAB 3: ANALYTICS / STATS OVERVIEW */}
             {adminTab === 'analytics' && (
-              <div className="space-y-4">
+              <div className="space-y-4 animate-slideDown">
                 <div className="grid grid-cols-2 gap-3">
                   <div className="glass-panel p-4 rounded-2xl space-y-1">
                     <span className="text-[9px] text-gray-500 uppercase tracking-widest">{lang === 'uz' ? 'Sotilgan mahsulotlar' : 'Products Ledger'}</span>
@@ -1322,6 +1697,88 @@ export default function App() {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {/* ADMIN TRANSACTION EDITING MODAL OVERLAY */}
+        {editingPurchase && (
+          <div className="fixed inset-0 z-50 bg-[#000]/80 flex items-center justify-center p-4 backdrop-blur-sm animate-fadeIn">
+            <form onSubmit={handleUpdatePurchase} className="glass-panel p-6 rounded-2xl w-full max-w-sm space-y-4 border border-cyan-500/30 glow-cyan">
+              <div className="flex justify-between items-center border-b border-white/10 pb-3">
+                <span className="text-xs font-bold uppercase tracking-wider text-cyan-400">
+                  {lang === 'uz' ? "Xaridni tahrirlash" : "Edit Purchase"}
+                </span>
+                <span className="text-[10px] text-gray-500">ID: {editingPurchase.id}</span>
+              </div>
+
+              <div className="text-[10px] text-gray-400 space-y-0.5">
+                <div>{lang === 'uz' ? "Ishchi" : "Worker"}: <span className="font-bold text-gray-200">{getUserName(editingPurchase.phone)}</span></div>
+                <div>{lang === 'uz' ? "Mahsulot" : "Product"}: <span className="font-bold text-gray-200">{products.find(p => p.id === editingPurchase.productId)?.name || editingPurchase.productId}</span></div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] text-gray-400 font-semibold uppercase">{lang === 'uz' ? 'Og\'irlik (KG)' : 'Weight (KG)'}</label>
+                <input
+                  type="number"
+                  step="any"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-gray-200 font-bold focus:outline-none focus:border-cyan-500"
+                  value={editWeight}
+                  onChange={(e) => setEditWeight(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] text-gray-400 font-semibold uppercase">{lang === 'uz' ? 'Narx (UZS)' : 'Price (UZS)'}</label>
+                <input
+                  type="text"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-gray-200 font-bold focus:outline-none focus:border-cyan-500"
+                  value={editPrice}
+                  onChange={(e) => setEditPrice(formatNumberInput(e.target.value))}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-[10px] text-gray-400 font-semibold uppercase">{lang === 'uz' ? 'To\'langan (UZS)' : 'Amount Paid (UZS)'}</label>
+                <input
+                  type="text"
+                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-xs text-gray-200 font-bold focus:outline-none focus:border-cyan-500"
+                  value={editPaid}
+                  onChange={(e) => setEditPaid(formatNumberInput(e.target.value))}
+                />
+              </div>
+
+              <div className="bg-white/3 p-3 rounded-xl border border-white/5 text-[11px] space-y-1">
+                <div className="flex justify-between">
+                  <span className="text-gray-400">{lang === 'uz' ? 'Yangi Jami' : 'New Total'}:</span>
+                  <span className="font-bold text-cyan-400">
+                    {formatCurrency((parseFloat(editWeight) || 0) * parseFormattedNumber(editPrice))}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">{lang === 'uz' ? 'Yangi Qarz' : 'New Debt'}:</span>
+                  <span className="font-bold text-rose-400">
+                    {formatCurrency(Math.max(0, ((parseFloat(editWeight) || 0) * parseFormattedNumber(editPrice)) - parseFormattedNumber(editPaid)))}
+                  </span>
+                </div>
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="flex-1 py-2.5 bg-gradient-to-r from-cyan-500 to-purple-600 hover:from-cyan-400 hover:to-purple-500 font-bold rounded-xl text-xs transition-all text-white shadow-md active:scale-95"
+                >
+                  {lang === 'uz' ? 'Saqlash' : 'Save'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingPurchase(null)}
+                  className="px-4 py-2.5 bg-white/5 border border-white/10 text-xs font-semibold rounded-xl text-gray-400 hover:text-white"
+                >
+                  {lang === 'uz' ? 'Bekor qilish' : 'Cancel'}
+                </button>
+              </div>
+            </form>
           </div>
         )}
       </main>
