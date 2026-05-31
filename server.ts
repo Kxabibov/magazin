@@ -310,6 +310,25 @@ async function startServer() {
     }
   });
 
+  // 11. Delete a purchase record (admin only)
+  app.post('/api/admin/delete-purchase', async (req, res) => {
+    try {
+      const response = await fetch(GOOGLE_SCRIPT_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'deletePurchase',
+          data: req.body
+        })
+      });
+      const data = await response.json();
+      return res.json(data);
+    } catch (error: any) {
+      console.error('Error in /api/admin/delete-purchase:', error);
+      return res.status(500).json({ success: false, error: error.message });
+    }
+  });
+
   // Vite or static files serving based on NODE_ENV
   if (process.env.NODE_ENV !== 'production') {
     console.log('Integrating Vite dev middleware...');

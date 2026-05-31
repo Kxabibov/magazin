@@ -86,6 +86,10 @@ function doPost(e) {
       return jsonResponse(updatePurchase(sheet, postData.data));
     }
     
+    if (action === "deletePurchase") {
+      return jsonResponse(deletePurchase(sheet, postData.data));
+    }
+    
     return jsonResponse({ success: false, error: "Invalid POST action: " + action });
   } catch (error) {
     return jsonResponse({ success: false, error: error.toString() });
@@ -435,6 +439,22 @@ function updatePurchase(ss, item) {
       sheet.getRange(i + 1, 9).setValue(status);
       
       return { success: true, message: "Purchase updated successfully" };
+    }
+  }
+  
+  return { success: false, error: "Purchase record not found" };
+}
+
+// Delete purchase record (admin feature)
+function deletePurchase(ss, data) {
+  var sheet = ss.getSheetByName("Purchases");
+  var rows = sheet.getDataRange().getValues();
+  var purchaseId = data.id;
+  
+  for (var i = 1; i < rows.length; i++) {
+    if (rows[i][0] === purchaseId) {
+      sheet.deleteRow(i + 1);
+      return { success: true, message: "Purchase deleted successfully" };
     }
   }
   

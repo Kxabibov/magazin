@@ -448,6 +448,7 @@ export default function App() {
         );
         setNewUserName('');
         setNewUserPhone('');
+        await fetchAdminUsers();
         setTimeout(() => setSuccessMessage(''), 3000);
       } else {
         setErrorMessage(data.error || 'Failed to add user');
@@ -547,6 +548,38 @@ export default function App() {
         setTimeout(() => setSuccessMessage(''), 3000);
       } else {
         setErrorMessage(data.error || 'Update purchase error');
+      }
+    } catch (err) {
+      console.error(err);
+      setErrorMessage('Server connection error.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDeletePurchase = async (id: string) => {
+    const confirmMsg = lang === 'uz' 
+      ? "Ushbu xaridni rostdan ham o'chirmoqchimisiz? Bu amalni ortga qaytarib bo'lmaydi."
+      : "Are you sure you want to delete this purchase? This action cannot be undone.";
+    if (!window.confirm(confirmMsg)) return;
+
+    setLoading(true);
+    try {
+      const res = await fetch('/api/admin/delete-purchase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setSuccessMessage(lang === 'uz' ? "Xarid muvaffaqiyatli o'chirildi!" : "Purchase deleted successfully!");
+        await fetchAdminTransactions();
+        if (selectedProduct) {
+          await refreshProductData();
+        }
+        setTimeout(() => setSuccessMessage(''), 3000);
+      } else {
+        setErrorMessage(data.error || 'Delete purchase error');
       }
     } catch (err) {
       console.error(err);
@@ -813,7 +846,7 @@ export default function App() {
             </h1>
             <p className="text-[10px] text-gray-400 font-light flex items-center">
               <span className="inline-block w-1.5 h-1.5 bg-emerald-500 rounded-full mr-1.5 animate-pulse"></span>
-              {currentUser?.name}
+              {currentUser?.name} {currentUser?.phone && `(${currentUser.phone})`}
             </p>
           </div>
         </div>
@@ -949,7 +982,9 @@ export default function App() {
                 </div>
                 <div>
                   <h4 className="text-xs text-gray-400 font-light">{lang === 'uz' ? 'Sizning xaridlaringiz' : 'Your Purchases'}</h4>
-                  <p className="text-sm font-bold text-gray-200">{currentUser?.phone}</p>
+                  <p className="text-sm font-bold text-gray-200">
+                    {currentUser?.name && `${currentUser.name} • `}{currentUser?.phone}
+                  </p>
                 </div>
               </div>
             </div>
@@ -1551,7 +1586,8 @@ export default function App() {
                             const name = getUserName(item.phone).toLowerCase();
                             const prod = (products.find(p => p.id === item.productId)?.name || '').toLowerCase();
                             const query = adminSearchQuery.toLowerCase();
-                            return name.includes(query) || prod.includes(query) || item.phone.toLowerCase().includes(query);
+                            const phoneStr = item.phone ? String(item.phone).toLowerCase() : '';
+                            return name.includes(query) || prod.includes(query) || phoneStr.includes(query);
                           })
                           .reduce((sum, item) => sum + item.totalPrice, 0)
                       )}
@@ -1566,7 +1602,8 @@ export default function App() {
                             const name = getUserName(item.phone).toLowerCase();
                             const prod = (products.find(p => p.id === item.productId)?.name || '').toLowerCase();
                             const query = adminSearchQuery.toLowerCase();
-                            return name.includes(query) || prod.includes(query) || item.phone.toLowerCase().includes(query);
+                            const phoneStr = item.phone ? String(item.phone).toLowerCase() : '';
+                            return name.includes(query) || prod.includes(query) || phoneStr.includes(query);
                           })
                           .reduce((sum, item) => sum + item.amountPaid, 0)
                       )}
@@ -1581,7 +1618,8 @@ export default function App() {
                             const name = getUserName(item.phone).toLowerCase();
                             const prod = (products.find(p => p.id === item.productId)?.name || '').toLowerCase();
                             const query = adminSearchQuery.toLowerCase();
-                            return name.includes(query) || prod.includes(query) || item.phone.toLowerCase().includes(query);
+                            const phoneStr = item.phone ? String(item.phone).toLowerCase() : '';
+                            return name.includes(query) || prod.includes(query) || phoneStr.includes(query);
                           })
                           .reduce((sum, item) => sum + item.remainingDebt, 0)
                       )}
@@ -1596,7 +1634,8 @@ export default function App() {
                       const name = getUserName(item.phone).toLowerCase();
                       const prod = (products.find(p => p.id === item.productId)?.name || '').toLowerCase();
                       const query = adminSearchQuery.toLowerCase();
-                      return name.includes(query) || prod.includes(query) || item.phone.toLowerCase().includes(query);
+                      const phoneStr = item.phone ? String(item.phone).toLowerCase() : '';
+                      return name.includes(query) || prod.includes(query) || phoneStr.includes(query);
                     })
                     .map((item) => (
                       <div key={item.id} className="glass-panel p-4 rounded-2xl space-y-3 border-white/5">
@@ -1621,18 +1660,27 @@ export default function App() {
                             }`}>
                               {item.status === 'Paid' ? t.paid : item.status === 'Partially Paid' ? t.partial : t.onlyDebt}
                             </span>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setEditingPurchase(item);
-                                setEditWeight(item.quantityKg.toString());
-                                setEditPrice(formatNumberInput(item.pricePerKg.toString()));
-                                setEditPaid(formatNumberInput(item.amountPaid.toString()));
-                              }}
-                              className="block mt-2 text-[10px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-1 rounded-lg hover:bg-cyan-500/20 active:scale-95 transition-all ml-auto"
-                            >
-                              {lang === 'uz' ? 'Tahrirlash' : 'Edit'}
-                            </button>
+                            <div className="flex flex-col items-end">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingPurchase(item);
+                                  setEditWeight(item.quantityKg.toString());
+                                  setEditPrice(formatNumberInput(item.pricePerKg.toString()));
+                                  setEditPaid(formatNumberInput(item.amountPaid.toString()));
+                                }}
+                                className="block mt-2 text-[10px] font-bold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-2.5 py-1 rounded-lg hover:bg-cyan-500/20 active:scale-95 transition-all"
+                              >
+                                {lang === 'uz' ? 'Tahrirlash' : 'Edit'}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeletePurchase(item.id)}
+                                className="block mt-1.5 text-[10px] font-bold text-rose-400 bg-rose-500/10 border border-rose-500/20 px-2.5 py-1 rounded-lg hover:bg-rose-500/20 active:scale-95 transition-all"
+                              >
+                                {lang === 'uz' ? "O'chirish" : 'Delete'}
+                              </button>
+                            </div>
                           </div>
                         </div>
 
