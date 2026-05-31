@@ -208,6 +208,10 @@ function getHistory(ss, productId, phone) {
     if (productId && pId !== productId) continue;
     if (cleanQueryPhone && userPhone !== cleanQueryPhone) continue;
     
+    // Skip if marked as deleted in Column 11
+    var isDeleted = data[i][10] ? String(data[i][10]).trim() : "";
+    if (isDeleted === "Yes" || isDeleted === "Deleted") continue;
+    
     history.push({
       id: data[i][0],
       productId: pId,
@@ -245,6 +249,10 @@ function getDebts(ss, productId, phone) {
     // Check filters
     if (productId && pId !== productId) continue;
     if (cleanQueryPhone && userPhone !== cleanQueryPhone) continue;
+    
+    // Skip if marked as deleted in Column 11
+    var isDeleted = data[i][10] ? String(data[i][10]).trim() : "";
+    if (isDeleted === "Yes" || isDeleted === "Deleted") continue;
     
     debts.push({
       id: data[i][0],
@@ -418,6 +426,10 @@ function updatePurchase(ss, item) {
   
   for (var i = 1; i < rows.length; i++) {
     if (rows[i][0] === purchaseId) {
+      var oldQuantity = Number(rows[i][3]);
+      var oldPrice = Number(rows[i][4]);
+      var oldPaid = Number(rows[i][6]);
+
       var quantity = Number(item.quantityKg);
       var price = Number(item.pricePerKg);
       var total = Math.round(quantity * price);
@@ -430,13 +442,32 @@ function updatePurchase(ss, item) {
         status = paid === 0 ? "Debt" : "Partially Paid";
       }
       
-      // Columns: 1=Id, 2=ProductId, 3=Date, 4=QuantityKg, 5=PricePerKg, 6=TotalPrice, 7=AmountPaid, 8=RemainingDebt, 9=Status, 10=Phone
+      // Calculate and format modification log
+      var timestamp = Utilities.formatDate(new Date(), "GMT+5", "yyyy-MM-dd HH:mm");
+      var changes = [];
+      if (oldQuantity !== quantity) changes.push("Weight: " + oldQuantity + "kg -> " + quantity + "kg");
+      if (oldPrice !== price) changes.push("Price: " + oldPrice + " -> " + price);
+      if (oldPaid !== paid) changes.push("Paid: " + oldPaid + " -> " + paid);
+      
+      var logMsg = "";
+      if (changes.length > 0) {
+        logMsg = "Changed by Admin on " + timestamp + ": " + changes.join(", ");
+        var oldLog = rows[i][11] ? String(rows[i][11]) : "";
+        if (oldLog) {
+          logMsg = oldLog + " | " + logMsg;
+        }
+      }
+      
+      // Columns: 1=Id, 2=ProductId, 3=Date, 4=QuantityKg, 5=PricePerKg, 6=TotalPrice, 7=AmountPaid, 8=RemainingDebt, 9=Status, 10=Phone, 11=Deleted, 12=Log
       sheet.getRange(i + 1, 4).setValue(quantity);
       sheet.getRange(i + 1, 5).setValue(price);
       sheet.getRange(i + 1, 6).setValue(total);
       sheet.getRange(i + 1, 7).setValue(paid);
       sheet.getRange(i + 1, 8).setValue(debt);
       sheet.getRange(i + 1, 9).setValue(status);
+      if (logMsg) {
+        sheet.getRange(i + 1, 12).setValue(logMsg);
+      }
       
       return { success: true, message: "Purchase updated successfully" };
     }
@@ -453,8 +484,10 @@ function deletePurchase(ss, data) {
   
   for (var i = 1; i < rows.length; i++) {
     if (rows[i][0] === purchaseId) {
-      sheet.deleteRow(i + 1);
-      return { success: true, message: "Purchase deleted successfully" };
+      var timestamp = Utilities.formatDate(new Date(), "GMT+5", "yyyy-MM-dd HH:mm");
+      sheet.getRange(i + 1, 11).setValue("Yes");
+      sheet.getRange(i + 1, 12).setValue("Deleted by Admin on " + timestamp);
+      return { success: true, message: "Purchase marked as deleted successfully" };
     }
   }
   
