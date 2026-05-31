@@ -128,38 +128,37 @@ function initializeSheet() {
   }
 }
 
+// Clean and format phone number for standardized comparison (removes spaces, symbols, plus sign)
+function cleanPhoneNumber(phone) {
+  if (!phone) return "";
+  var cleaned = String(phone).replace(/[\s\-\(\)\+]/g, "");
+  // If local 9-digit format, standardize to Uzbekistan format
+  if (cleaned.length === 9) {
+    cleaned = "998" + cleaned;
+  }
+  return cleaned;
+}
+
 // Check if a phone number is authorized
 function checkPhone(ss, phone) {
   if (!phone) return { allowed: false, error: "Phone number is required" };
   
-  // Format phone number to clean spaces, dashes etc.
-  var cleanPhone = phone.replace(/[\s\-\(\)]/g, "");
-  if (!cleanPhone.startsWith("+")) {
-    // Standardize to start with + (assuming Uzb format standard or international)
-    if (cleanPhone.startsWith("998")) {
-      cleanPhone = "+" + cleanPhone;
-    }
-  }
-  
+  var cleanPhone = cleanPhoneNumber(phone);
   var sheet = ss.getSheetByName("AllowedUsers");
   var data = sheet.getDataRange().getValues();
   
   for (var i = 1; i < data.length; i++) {
-    var userPhone = String(data[i][0]).replace(/[\s\-\(\)]/g, "");
-    if (!userPhone.startsWith("+") && userPhone.startsWith("998")) {
-      userPhone = "+" + userPhone;
-    }
-    
+    var userPhone = cleanPhoneNumber(data[i][0]);
     if (userPhone === cleanPhone) {
       var name = data[i][1];
       var status = data[i][2];
       if (status.toLowerCase() === "active") {
-        return { allowed: true, name: name, phone: cleanPhone };
+        return { allowed: true, name: name, phone: phone };
       }
     }
   }
   
-  return { allowed: false, phone: cleanPhone };
+  return { allowed: false, phone: phone };
 }
 
 // Get list of products
@@ -183,14 +182,15 @@ function getHistory(ss, productId, phone) {
   var sheet = ss.getSheetByName("Purchases");
   var data = sheet.getDataRange().getValues();
   var history = [];
+  var cleanQueryPhone = cleanPhoneNumber(phone);
   
   for (var i = 1; i < data.length; i++) {
     var pId = data[i][1];
-    var userPhone = data[i][9];
+    var userPhone = cleanPhoneNumber(data[i][9]);
     
     // Check filters if provided
     if (productId && pId !== productId) continue;
-    if (phone && userPhone !== phone) continue;
+    if (cleanQueryPhone && userPhone !== cleanQueryPhone) continue;
     
     history.push({
       id: data[i][0],
@@ -202,7 +202,7 @@ function getHistory(ss, productId, phone) {
       amountPaid: Number(data[i][6]),
       remainingDebt: Number(data[i][7]),
       status: data[i][8],
-      phone: userPhone
+      phone: data[i][9]
     });
   }
   
@@ -217,17 +217,18 @@ function getDebts(ss, productId, phone) {
   var sheet = ss.getSheetByName("Purchases");
   var data = sheet.getDataRange().getValues();
   var debts = [];
+  var cleanQueryPhone = cleanPhoneNumber(phone);
   
   for (var i = 1; i < data.length; i++) {
     var pId = data[i][1];
-    var userPhone = data[i][9];
+    var userPhone = cleanPhoneNumber(data[i][9]);
     var remainingDebt = Number(data[i][7]);
     
     if (remainingDebt <= 0) continue; // Not a debt
     
     // Check filters
     if (productId && pId !== productId) continue;
-    if (phone && userPhone !== phone) continue;
+    if (cleanQueryPhone && userPhone !== cleanQueryPhone) continue;
     
     debts.push({
       id: data[i][0],
@@ -239,7 +240,7 @@ function getDebts(ss, productId, phone) {
       amountPaid: Number(data[i][6]),
       remainingDebt: remainingDebt,
       status: data[i][8],
-      phone: userPhone
+      phone: data[i][9]
     });
   }
   
@@ -341,27 +342,20 @@ function payDebt(ss, item) {
 // Add an allowed phone number (admin feature or manual trigger)
 function addAllowedPhone(ss, user) {
   var sheet = ss.getSheetByName("AllowedUsers");
-  var phone = user.phone.replace(/[\s\-\(\)]/g, "");
-  if (!phone.startsWith("+") && phone.startsWith("998")) {
-    phone = "+" + phone;
-  }
+  var cleanPhone = cleanPhoneNumber(user.phone);
   
   // Check if phone already exists
   var data = sheet.getDataRange().getValues();
   for (var i = 1; i < data.length; i++) {
-    var existingPhone = String(data[i][0]).replace(/[\s\-\(\)]/g, "");
-    if (!existingPhone.startsWith("+") && existingPhone.startsWith("998")) {
-      existingPhone = "+" + existingPhone;
-    }
-    
-    if (existingPhone === phone) {
+    var existingPhone = cleanPhoneNumber(data[i][0]);
+    if (existingPhone === cleanPhone) {
       // Update name and status
       sheet.getRange(i + 1, 2).setValue(user.name);
       sheet.getRange(i + 1, 3).setValue("Active");
-      return { success: true, message: "User phone updated", phone: phone };
+      return { success: true, message: "User phone updated", phone: user.phone };
     }
   }
   
-  sheet.appendRow([phone, user.name, "Active"]);
-  return { success: true, message: "User phone added", phone: phone };
+  sheet.appendRow(["+" + cleanPhone, user.name, "Active"]);
+  return { success: true, message: "User phone added", phone: user.phone };
 }
