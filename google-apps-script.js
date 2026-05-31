@@ -1,0 +1,367 @@
+/**
+ * Google Apps Script for "dukon Laziz" Telegram Bot Backend
+ * 
+ * Instructions:
+ * 1. Open your Google Sheet.
+ * 2. Click Extensions -> Apps Script.
+ * 3. Delete any existing code and paste this code.
+ * 4. Click Deploy -> New Deployment.
+ * 5. Choose Select type -> Web app.
+ * 6. Set Description: "dukon Laziz API"
+ * 7. Set Execute as: "Me"
+ * 8. Set Who has access: "Anyone"
+ * 9. Click Deploy (Authorize permissions when prompted).
+ * 10. Copy the Web app URL and paste it in your `.env` file as `GOOGLE_SCRIPT_URL`.
+ */
+
+function doGet(e) {
+  try {
+    initializeSheet();
+    var action = e.parameter.action;
+    var sheet = SpreadsheetApp.getActiveSpreadsheet();
+    
+    if (!action) {
+      return jsonResponse({ success: false, error: "Missing action parameter" });
+    }
+    
+    if (action === "checkPhone") {
+      var phone = e.parameter.phone;
+      return jsonResponse(checkPhone(sheet, phone));
+    }
+    
+    if (action === "getProducts") {
+      return jsonResponse(getProducts(sheet));
+    }
+    
+    if (action === "getHistory") {
+      var productId = e.parameter.productId;
+      var phone = e.parameter.phone;
+      return jsonResponse(getHistory(sheet, productId, phone));
+    }
+    
+    if (action === "getDebts") {
+      var productId = e.parameter.productId;
+      var phone = e.parameter.phone;
+      return jsonResponse(getDebts(sheet, productId, phone));
+    }
+    
+    return jsonResponse({ success: false, error: "Invalid GET action: " + action });
+  } catch (error) {
+    return jsonResponse({ success: false, error: error.toString() });
+  }
+}
+
+function doPost(e) {
+  try {
+    initializeSheet();
+    var postData = JSON.parse(e.postData.contents);
+    var action = postData.action;
+    var sheet = SpreadsheetApp.getActiveSpreadsheet();
+    
+    if (!action) {
+      return jsonResponse({ success: false, error: "Missing action in POST body" });
+    }
+    
+    if (action === "recordPurchase") {
+      return jsonResponse(recordPurchase(sheet, postData.data));
+    }
+    
+    if (action === "payDebt") {
+      return jsonResponse(payDebt(sheet, postData.data));
+    }
+    
+    if (action === "addAllowedPhone") {
+      return jsonResponse(addAllowedPhone(sheet, postData.data));
+    }
+    
+    return jsonResponse({ success: false, error: "Invalid POST action: " + action });
+  } catch (error) {
+    return jsonResponse({ success: false, error: error.toString() });
+  }
+}
+
+// Helper to return JSON response
+function jsonResponse(data) {
+  return ContentService.createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// Automatically creates sheets and column headers if they don't exist
+function initializeSheet() {
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  
+  // 1. AllowedUsers Sheet
+  var allowedUsersSheet = ss.getSheetByName("AllowedUsers");
+  if (!allowedUsersSheet) {
+    allowedUsersSheet = ss.insertSheet("AllowedUsers");
+    allowedUsersSheet.appendRow(["Phone", "Name", "Status"]);
+    // Append some example default number (change as needed)
+    allowedUsersSheet.appendRow(["+998991234567", "Laziz Owner", "Active"]);
+  }
+  
+  // 2. Products Sheet
+  var productsSheet = ss.getSheetByName("Products");
+  if (!productsSheet) {
+    productsSheet = ss.insertSheet("Products");
+    productsSheet.appendRow(["Id", "Name"]);
+    productsSheet.appendRow(["p1", "Product One"]);
+    productsSheet.appendRow(["p2", "Product Two"]);
+    productsSheet.appendRow(["p3", "Product Three"]);
+    productsSheet.appendRow(["p4", "Product Four"]);
+  }
+  
+  // 3. Purchases Sheet
+  var purchasesSheet = ss.getSheetByName("Purchases");
+  if (!purchasesSheet) {
+    purchasesSheet = ss.insertSheet("Purchases");
+    purchasesSheet.appendRow([
+      "Id", "ProductId", "Date", "QuantityKg", "PricePerKg", 
+      "TotalPrice", "AmountPaid", "RemainingDebt", "Status", "Phone"
+    ]);
+  }
+  
+  // 4. Payments Sheet
+  var paymentsSheet = ss.getSheetByName("Payments");
+  if (!paymentsSheet) {
+    paymentsSheet = ss.insertSheet("Payments");
+    paymentsSheet.appendRow(["Id", "PurchaseId", "Date", "AmountPaid", "Phone"]);
+  }
+}
+
+// Check if a phone number is authorized
+function checkPhone(ss, phone) {
+  if (!phone) return { allowed: false, error: "Phone number is required" };
+  
+  // Format phone number to clean spaces, dashes etc.
+  var cleanPhone = phone.replace(/[\s\-\(\)]/g, "");
+  if (!cleanPhone.startsWith("+")) {
+    // Standardize to start with + (assuming Uzb format standard or international)
+    if (cleanPhone.startsWith("998")) {
+      cleanPhone = "+" + cleanPhone;
+    }
+  }
+  
+  var sheet = ss.getSheetByName("AllowedUsers");
+  var data = sheet.getDataRange().getValues();
+  
+  for (var i = 1; i < data.length; i++) {
+    var userPhone = String(data[i][0]).replace(/[\s\-\(\)]/g, "");
+    if (!userPhone.startsWith("+") && userPhone.startsWith("998")) {
+      userPhone = "+" + userPhone;
+    }
+    
+    if (userPhone === cleanPhone) {
+      var name = data[i][1];
+      var status = data[i][2];
+      if (status.toLowerCase() === "active") {
+        return { allowed: true, name: name, phone: cleanPhone };
+      }
+    }
+  }
+  
+  return { allowed: false, phone: cleanPhone };
+}
+
+// Get list of products
+function getProducts(ss) {
+  var sheet = ss.getSheetByName("Products");
+  var data = sheet.getDataRange().getValues();
+  var products = [];
+  
+  for (var i = 1; i < data.length; i++) {
+    products.push({
+      id: data[i][0],
+      name: data[i][1]
+    });
+  }
+  
+  return { success: true, products: products };
+}
+
+// Get purchase history, optionally filtered by product and phone
+function getHistory(ss, productId, phone) {
+  var sheet = ss.getSheetByName("Purchases");
+  var data = sheet.getDataRange().getValues();
+  var history = [];
+  
+  for (var i = 1; i < data.length; i++) {
+    var pId = data[i][1];
+    var userPhone = data[i][9];
+    
+    // Check filters if provided
+    if (productId && pId !== productId) continue;
+    if (phone && userPhone !== phone) continue;
+    
+    history.push({
+      id: data[i][0],
+      productId: pId,
+      date: data[i][2],
+      quantityKg: Number(data[i][3]),
+      pricePerKg: Number(data[i][4]),
+      totalPrice: Number(data[i][5]),
+      amountPaid: Number(data[i][6]),
+      remainingDebt: Number(data[i][7]),
+      status: data[i][8],
+      phone: userPhone
+    });
+  }
+  
+  // Sort by date descending (assuming chronological order of entry, reverse it)
+  history.reverse();
+  
+  return { success: true, history: history };
+}
+
+// Get outstanding debts, optionally filtered by product and phone
+function getDebts(ss, productId, phone) {
+  var sheet = ss.getSheetByName("Purchases");
+  var data = sheet.getDataRange().getValues();
+  var debts = [];
+  
+  for (var i = 1; i < data.length; i++) {
+    var pId = data[i][1];
+    var userPhone = data[i][9];
+    var remainingDebt = Number(data[i][7]);
+    
+    if (remainingDebt <= 0) continue; // Not a debt
+    
+    // Check filters
+    if (productId && pId !== productId) continue;
+    if (phone && userPhone !== phone) continue;
+    
+    debts.push({
+      id: data[i][0],
+      productId: pId,
+      date: data[i][2],
+      quantityKg: Number(data[i][3]),
+      pricePerKg: Number(data[i][4]),
+      totalPrice: Number(data[i][5]),
+      amountPaid: Number(data[i][6]),
+      remainingDebt: remainingDebt,
+      status: data[i][8],
+      phone: userPhone
+    });
+  }
+  
+  debts.reverse(); // Newest debts first
+  
+  return { success: true, debts: debts };
+}
+
+// Record a new purchase
+function recordPurchase(ss, item) {
+  var sheet = ss.getSheetByName("Purchases");
+  var id = "PURCH-" + Math.floor(Math.random() * 900000 + 100000);
+  
+  var quantity = Number(item.quantityKg);
+  var price = Number(item.pricePerKg);
+  var total = Number(item.totalPrice);
+  var paid = Number(item.amountPaid);
+  var debt = total - paid;
+  
+  var status = "Paid";
+  if (debt > 0) {
+    status = paid === 0 ? "Debt" : "Partially Paid";
+  }
+  
+  var dateStr = Utilities.formatDate(new Date(), "GMT+5", "yyyy-MM-dd HH:mm");
+  
+  sheet.appendRow([
+    id,
+    item.productId,
+    dateStr,
+    quantity,
+    price,
+    total,
+    paid,
+    debt,
+    status,
+    item.phone
+  ]);
+  
+  return { success: true, purchaseId: id, total: total, paid: paid, debt: debt, status: status };
+}
+
+// Pay off a debt
+function payDebt(ss, item) {
+  var purchasesSheet = ss.getSheetByName("Purchases");
+  var paymentsSheet = ss.getSheetByName("Payments");
+  
+  var purchaseId = item.purchaseId;
+  var payAmount = Number(item.amountPaid);
+  var phone = item.phone;
+  
+  var data = purchasesSheet.getDataRange().getValues();
+  var rowIdx = -1;
+  
+  for (var i = 1; i < data.length; i++) {
+    if (data[i][0] === purchaseId) {
+      rowIdx = i + 1; // 1-indexed and has header row
+      break;
+    }
+  }
+  
+  if (rowIdx === -1) {
+    return { success: false, error: "Purchase record not found: " + purchaseId };
+  }
+  
+  // Current values
+  var currentPaid = Number(purchasesSheet.getRange(rowIdx, 7).getValue());
+  var currentDebt = Number(purchasesSheet.getRange(rowIdx, 8).getValue());
+  var totalPrice = Number(purchasesSheet.getRange(rowIdx, 6).getValue());
+  
+  var newPaid = currentPaid + payAmount;
+  var newDebt = currentDebt - payAmount;
+  if (newDebt < 0) newDebt = 0; // prevent negative debt
+  
+  var newStatus = "Paid";
+  if (newDebt > 0) {
+    newStatus = newPaid === 0 ? "Debt" : "Partially Paid";
+  }
+  
+  // Update Purchases sheet
+  purchasesSheet.getRange(rowIdx, 7).setValue(newPaid);
+  purchasesSheet.getRange(rowIdx, 8).setValue(newDebt);
+  purchasesSheet.getRange(rowIdx, 9).setValue(newStatus);
+  
+  // Log payment transaction in Payments sheet
+  var paymentId = "PAY-" + Math.floor(Math.random() * 900000 + 100000);
+  var dateStr = Utilities.formatDate(new Date(), "GMT+5", "yyyy-MM-dd HH:mm");
+  paymentsSheet.appendRow([paymentId, purchaseId, dateStr, payAmount, phone]);
+  
+  return { 
+    success: true, 
+    paymentId: paymentId, 
+    newPaid: newPaid, 
+    newDebt: newDebt, 
+    status: newStatus 
+  };
+}
+
+// Add an allowed phone number (admin feature or manual trigger)
+function addAllowedPhone(ss, user) {
+  var sheet = ss.getSheetByName("AllowedUsers");
+  var phone = user.phone.replace(/[\s\-\(\)]/g, "");
+  if (!phone.startsWith("+") && phone.startsWith("998")) {
+    phone = "+" + phone;
+  }
+  
+  // Check if phone already exists
+  var data = sheet.getDataRange().getValues();
+  for (var i = 1; i < data.length; i++) {
+    var existingPhone = String(data[i][0]).replace(/[\s\-\(\)]/g, "");
+    if (!existingPhone.startsWith("+") && existingPhone.startsWith("998")) {
+      existingPhone = "+" + existingPhone;
+    }
+    
+    if (existingPhone === phone) {
+      // Update name and status
+      sheet.getRange(i + 1, 2).setValue(user.name);
+      sheet.getRange(i + 1, 3).setValue("Active");
+      return { success: true, message: "User phone updated", phone: phone };
+    }
+  }
+  
+  sheet.appendRow([phone, user.name, "Active"]);
+  return { success: true, message: "User phone added", phone: phone };
+}
